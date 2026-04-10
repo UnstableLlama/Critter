@@ -34,6 +34,7 @@ from .notifications import (
     notify_permission_needed,
 )
 from .codex_hook_installer import install_if_needed as install_codex_hooks
+from .hermes_plugin_installer import install_if_needed as install_hermes_plugin
 from .config import CritterConfig, detect_local_backends
 from .hook_installer import install_if_needed as install_claude_hooks
 from .hook_server import HookSocketServer
@@ -106,6 +107,14 @@ class CritterApp(Adw.Application):
                 logger.info("Codex hooks installed/verified")
             except Exception:
                 logger.exception("Failed to install Codex hooks")
+
+        # Install Hermes Agent plugin
+        if self._config.hermes_hooks:
+            try:
+                install_hermes_plugin()
+                logger.info("Hermes Agent plugin installed/verified")
+            except Exception:
+                logger.exception("Failed to install Hermes plugin")
 
         # Journal startup entry
         self._journal.on_startup(self._stats.bonding)

@@ -47,6 +47,7 @@ class CritterConfig:
     backends: list[BackendConfig] = field(default_factory=list)
     claude_code_hooks: bool = True
     codex_hooks: bool = True
+    hermes_hooks: bool = True
 
     @staticmethod
     def load(path: Path | None = None) -> CritterConfig:
@@ -86,6 +87,7 @@ class CritterConfig:
             backends=backends,
             claude_code_hooks=raw.get("claude_code_hooks", True),
             codex_hooks=raw.get("codex_hooks", True),
+            hermes_hooks=raw.get("hermes_hooks", True),
         )
 
     @staticmethod
@@ -142,6 +144,7 @@ DEFAULT_EXAMPLE_CONFIG = """\
 # Enable/disable hook-based integrations
 claude_code_hooks: true
 codex_hooks: true
+hermes_hooks: true
 
 # API backends (each gets its own transparent proxy)
 backends:
@@ -176,4 +179,9 @@ backends:
   #   url: "http://localhost:5000"
   #   provider: "openai"
   #   proxy_port: 9994
+
+  # Tip: Hermes Agent can also be monitored through the proxy!
+  # In your Hermes config.yaml, point the provider URL at the proxy:
+  #   e.g. api_base: "http://127.0.0.1:9990" (for OpenAI-format backends)
+  # The Hermes plugin (auto-installed) also provides hook-based tracking.
 """

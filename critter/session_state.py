@@ -156,6 +156,7 @@ class SessionSource(str, Enum):
     """Where this session originated from."""
     CLAUDE_CODE = "claude_code"
     CODEX = "codex"
+    HERMES = "hermes"
     PROXY = "proxy"
 
 
@@ -202,6 +203,8 @@ class SessionState:
             return self.backend_name
         if self.source == SessionSource.CODEX:
             return "Codex"
+        if self.source == SessionSource.HERMES:
+            return "Hermes"
         return "Claude Code"
 
 
