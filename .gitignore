@@ -59,6 +59,14 @@ scripts/
 # Secrets
 .env
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+*.egg
+
 # Claude (local)
 .claude/
 CLAUDE.md
