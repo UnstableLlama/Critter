@@ -24,7 +24,15 @@ from .buddy.journal import Journal
 from .buddy.memory import CritterMemory
 from .buddy.milestones import check_milestones
 from .buddy.mood import Mood, MoodEngine
+from .buddy.secrets import check_secret_events, maybe_comfort
 from .buddy.stats import CritterStats
+from .notifications import (
+    notify_hungry,
+    notify_tired,
+    notify_milestone,
+    notify_growth,
+    notify_permission_needed,
+)
 from .codex_hook_installer import install_if_needed as install_codex_hooks
 from .config import CritterConfig, detect_local_backends
 from .hook_installer import install_if_needed as install_claude_hooks
@@ -71,6 +79,9 @@ class CritterApp(Adw.Application):
         self._save_timer_id: int | None = None
         self._bonding_thresholds_notified: set[int] = set()
         self._observation_counter = 0
+        self._consecutive_errors = 0
+        self._notified_hungry = False
+        self._notified_tired = False
 
     def _on_activate(self, app):
         if self._window:
@@ -219,11 +230,20 @@ class CritterApp(Adw.Application):
                 self._journal.on_lonely()
             self._last_lonely_check = 0
 
-        # Low stat warnings (journal) - but not too frequently
-        if self._stats.hunger < 20 and self._stats.hunger > 18:
+        # Low stat warnings with desktop notifications
+        if self._stats.hunger < 20 and not self._notified_hungry:
             self._journal.on_hungry()
-        if self._stats.energy < 20 and self._stats.energy > 18:
+            notify_hungry(self._identity.species.value)
+            self._notified_hungry = True
+        elif self._stats.hunger >= 30:
+            self._notified_hungry = False
+
+        if self._stats.energy < 20 and not self._notified_tired:
             self._journal.on_tired()
+            notify_tired(self._identity.species.value)
+            self._notified_tired = True
+        elif self._stats.energy >= 30:
+            self._notified_tired = False
 
         # Dream check (once per night when sleepy)
         self._dreams.maybe_dream(self._stats, self._journal)
@@ -241,6 +261,14 @@ class CritterApp(Adw.Application):
             self._observation_counter = 0
 
         self._check_milestones()
+
+        # Secret rare events
+        secret = check_secret_events(
+            self._stats, self._journal, self._identity.species.value
+        )
+        if secret and self._window:
+            self._window.show_milestone(secret)
+
         return True  # keep timer
 
     def _on_save_tick(self) -> bool:
@@ -271,6 +299,7 @@ class CritterApp(Adw.Application):
             self._journal.on_milestone(m.description)
             self._dreams.record_milestone()
             self._mood_engine.set_temporary_mood(Mood.PROUD, ticks=20)
+            notify_milestone(self._identity.species.value, m.name)
             if self._window:
                 self._window.show_milestone(f"Milestone: {m.name}!")
 
@@ -279,6 +308,7 @@ class CritterApp(Adw.Application):
         new_stage = check_growth_change(old_bonding, self._stats.bonding)
         if new_stage:
             self._growth_stage = new_stage
+            notify_growth(self._identity.species.value, new_stage.display_name)
             logger.info("Critter grew to %s stage!", new_stage.display_name)
             self._journal.write(
                 f"I feel different... I've grown! I'm a {new_stage.display_name} "
@@ -373,10 +403,30 @@ class CritterApp(Adw.Application):
 
         if event.event == "Stop":
             self._stats.on_success()
+            self._consecutive_errors = 0
             self._server.cancel_pending(event.session_id)
 
         if event.event == "PostToolUse" and event.tool_use_id:
             self._server.cancel_specific(event.tool_use_id)
+
+        # Permission request notification
+        if event.expects_response and event.tool:
+            project = event.cwd.rsplit("/", 1)[-1] if event.cwd else "session"
+            notify_permission_needed(project, event.tool)
+
+        # Error tracking for comfort system
+        if event.event == "Notification" and event.message:
+            msg_lower = (event.message or "").lower()
+            if "error" in msg_lower or "fail" in msg_lower:
+                self._consecutive_errors += 1
+                self._stats.on_error()
+                self._memory.remember_error()
+                self._journal.on_error()
+                maybe_comfort(
+                    self._consecutive_errors,
+                    self._journal,
+                    self._identity.species.value,
+                )
 
     def _on_proxy_event(
         self, session_id: str, backend_name: str, event: StreamEvent
