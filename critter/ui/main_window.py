@@ -5,6 +5,8 @@ Combines the buddy view, session list, and controls.
 
 from __future__ import annotations
 
+from typing import Callable
+
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -84,8 +86,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self,
         app: Gtk.Application,
         identity: BuddyIdentity,
-        on_approve: callable,
-        on_deny: callable,
+        on_approve: Callable[[str], None],
+        on_deny: Callable[[str], None],
     ):
         super().__init__(application=app, title="Critter")
         self.set_default_size(420, 680)

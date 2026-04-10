@@ -57,16 +57,6 @@ def _load_config() -> dict | None:
     return None
 
 
-def _detect_user_id() -> str:
-    config = _load_config()
-    if config is None:
-        return "anon"
-    # oauthAccount.accountUuid or userID
-    oauth = config.get("oauthAccount", {})
-    uid = oauth.get("accountUuid") or config.get("userID")
-    return uid or "anon"
-
-
 def _roll_rarity(rng: Mulberry32) -> Rarity:
     total = sum(r.weight for r in Rarity)
     roll = rng.next() * total
