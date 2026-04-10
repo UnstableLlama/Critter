@@ -13,6 +13,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Adw, Pango
 
+from ..buddy.growth import GrowthStage
 from ..buddy.identity import BuddyIdentity, Task
 from ..buddy.mood import Mood
 from ..buddy.stats import CritterStats
@@ -269,6 +270,10 @@ class MainWindow(Gtk.ApplicationWindow):
     def show_reaction(self, text: str):
         """Show a brief reaction from a button press."""
         self._buddy_view.show_reaction(text)
+
+    def update_growth(self, stage: GrowthStage):
+        """Update the growth stage display."""
+        self._buddy_view.set_growth_stage(stage)
 
     def show_milestone(self, text: str):
         """Flash a milestone notification."""

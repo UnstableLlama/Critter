@@ -13,6 +13,7 @@ gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango, GLib
 
 from ..buddy.animator import SpriteAnimator
+from ..buddy.growth import GrowthStage
 from ..buddy.identity import BuddyIdentity, Task
 from ..buddy.mood import Mood
 from ..buddy.stats import CritterStats
@@ -209,6 +210,16 @@ class BuddyView(Gtk.Box):
         lines = self._animator.render_body()
         self._sprite_label.set_text("\n".join(lines))
 
+    def set_growth_stage(self, stage: GrowthStage):
+        """Update the displayed growth stage."""
+        name = self._identity_ref.name or self._identity_ref.species.value.title()
+        prefix = stage.title_prefix
+        self._name_label.set_markup(
+            f"<b>{prefix}{name}</b>  "
+            f"<small>({self._identity_ref.species.value} - {stage.display_name})</small>"
+        )
+
     def _format_name(self, identity: BuddyIdentity) -> str:
+        self._identity_ref = identity
         name = identity.name or identity.species.value.title()
         return f"<b>{name}</b>  <small>({identity.species.value})</small>"

@@ -18,7 +18,10 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Adw
 
 from .buddy.detector import detect as detect_buddy
+from .buddy.dreams import DreamEngine
+from .buddy.growth import GrowthStage, check_growth_change
 from .buddy.journal import Journal
+from .buddy.memory import CritterMemory
 from .buddy.milestones import check_milestones
 from .buddy.mood import Mood, MoodEngine
 from .buddy.stats import CritterStats
@@ -60,10 +63,14 @@ class CritterApp(Adw.Application):
         self._stats = CritterStats.load()
         self._mood_engine = MoodEngine()
         self._journal = Journal(self._identity.species)
+        self._memory = CritterMemory.load()
+        self._dreams = DreamEngine(self._identity.species.value)
+        self._growth_stage = GrowthStage.from_bonding(self._stats.bonding)
         self._last_lonely_check = 0
         self._stat_timer_id: int | None = None
         self._save_timer_id: int | None = None
         self._bonding_thresholds_notified: set[int] = set()
+        self._observation_counter = 0
 
     def _on_activate(self, app):
         if self._window:
@@ -111,6 +118,7 @@ class CritterApp(Adw.Application):
         self._window.start_animation()
         self._window.update_stats(self._stats)
         self._window.update_mood(self._mood_engine.mood)
+        self._window.update_growth(self._growth_stage)
 
         # Wire store -> UI updates
         self._store.set_on_change(self._schedule_ui_update)
@@ -168,10 +176,12 @@ class CritterApp(Adw.Application):
         self._after_button(reaction)
 
     def _on_pet(self):
+        old_bonding = self._stats.bonding
         reaction = self._stats.pet()
         self._journal.on_petted()
         self._mood_engine.set_temporary_mood(Mood.LOVE, ticks=15)
         self._check_bonding_levels()
+        self._check_growth(old_bonding)
         self._after_button(reaction)
 
     def _after_button(self, reaction: str):
@@ -209,11 +219,26 @@ class CritterApp(Adw.Application):
                 self._journal.on_lonely()
             self._last_lonely_check = 0
 
-        # Low stat warnings (journal)
-        if self._stats.hunger < 20:
+        # Low stat warnings (journal) - but not too frequently
+        if self._stats.hunger < 20 and self._stats.hunger > 18:
             self._journal.on_hungry()
-        if self._stats.energy < 20:
+        if self._stats.energy < 20 and self._stats.energy > 18:
             self._journal.on_tired()
+
+        # Dream check (once per night when sleepy)
+        self._dreams.maybe_dream(self._stats, self._journal)
+
+        # Periodic memory observation (elder+ critters share wisdom)
+        self._observation_counter += 1
+        if (
+            self._observation_counter >= 60
+            and self._growth_stage
+            in (GrowthStage.ELDER, GrowthStage.LEGENDARY)
+        ):
+            observation = self._memory.generate_observation()
+            if observation:
+                self._journal.write(observation, "content")
+            self._observation_counter = 0
 
         self._check_milestones()
         return True  # keep timer
@@ -221,6 +246,7 @@ class CritterApp(Adw.Application):
     def _on_save_tick(self) -> bool:
         """Periodic save to disk."""
         self._stats.save()
+        self._memory.save()
         return True
 
     def _update_mood(self):
@@ -243,9 +269,28 @@ class CritterApp(Adw.Application):
             logger.info("Milestone achieved: %s - %s", m.name, m.description)
             self._stats.on_milestone()
             self._journal.on_milestone(m.description)
+            self._dreams.record_milestone()
             self._mood_engine.set_temporary_mood(Mood.PROUD, ticks=20)
             if self._window:
                 self._window.show_milestone(f"Milestone: {m.name}!")
+
+    def _check_growth(self, old_bonding: float):
+        """Check if the critter grew to a new stage."""
+        new_stage = check_growth_change(old_bonding, self._stats.bonding)
+        if new_stage:
+            self._growth_stage = new_stage
+            logger.info("Critter grew to %s stage!", new_stage.display_name)
+            self._journal.write(
+                f"I feel different... I've grown! I'm a {new_stage.display_name} "
+                f"now! {new_stage.unlocks}",
+                "proud",
+            )
+            self._mood_engine.set_temporary_mood(Mood.PROUD, ticks=25)
+            if self._window:
+                self._window.update_growth(new_stage)
+                self._window.show_milestone(
+                    f"Growth: {new_stage.display_name}!"
+                )
 
     def _check_bonding_levels(self):
         """Check if bonding crossed a notification threshold."""
@@ -305,17 +350,23 @@ class CritterApp(Adw.Application):
         """Called from async thread on hook event."""
         self._store.process_hook(event)
 
+        # Track in memory
+        self._memory.remember_activity()
+
         # Track in stats
         if event.event == "SessionStart":
             self._stats.on_session_start()
             project = event.cwd.rsplit("/", 1)[-1] if event.cwd else "unknown"
             self._journal.on_session_start(project)
+            self._memory.remember_project(project)
             self._last_lonely_check = 0
 
         if event.event in ("PreToolUse", "PostToolUse"):
             self._stats.on_tool_call()
             if event.tool:
                 self._journal.on_tool_call(event.tool)
+                self._memory.remember_tool(event.tool)
+                self._dreams.record_tool(event.tool)
 
         if event.event == "SessionEnd":
             self._journal.on_session_end()
@@ -337,8 +388,9 @@ class CritterApp(Adw.Application):
     # ---- Lifecycle ----
 
     def _on_shutdown(self, app):
-        # Save stats on exit
+        # Save everything on exit
         self._stats.save()
+        self._memory.save()
 
         if self._stat_timer_id:
             GLib.source_remove(self._stat_timer_id)
@@ -373,6 +425,7 @@ class CritterApp(Adw.Application):
         tool_use_id = session.active_permission.tool_use_id
         self._server.respond_to_permission(tool_use_id, "allow")
         self._store.process_permission_approved(session_id, tool_use_id)
+        self._memory.remember_approval()
 
     def _deny_session(self, session_id: str):
         session = self._store.session(session_id)
@@ -381,6 +434,7 @@ class CritterApp(Adw.Application):
         tool_use_id = session.active_permission.tool_use_id
         self._server.respond_to_permission(tool_use_id, "deny", "Denied via Critter")
         self._store.process_permission_denied(session_id, tool_use_id)
+        self._memory.remember_denial()
 
 
 def run():
