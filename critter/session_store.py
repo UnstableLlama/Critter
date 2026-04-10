@@ -12,7 +12,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
+from gi.repository import GLib
+
 from .session_state import HookEvent, PhaseKind, SessionPhase, SessionState
+
+# How long to show "Ended" state before removing (milliseconds)
+_ENDED_LINGER_MS = 3000
 
 logger = logging.getLogger("critter.session")
 
@@ -62,10 +67,12 @@ class SessionStore:
                 session.tty = event.tty.replace("/dev/", "")
             session.last_activity = datetime.now()
 
-            # Handle session end
+            # Handle session end: show "ended" briefly, then remove
             if event.status == "ended":
-                self._sessions.pop(sid, None)
+                session.phase = SessionPhase.ended()
+                self._sessions[sid] = session
                 self._notify()
+                GLib.timeout_add(_ENDED_LINGER_MS, self._remove_ended, sid)
                 return
 
             # State machine transition
@@ -106,6 +113,15 @@ class SessionStore:
         with self._lock:
             self._sessions.pop(session_id, None)
         self._notify()
+
+    def _remove_ended(self, session_id: str) -> bool:
+        """GLib timeout callback to remove a session after the linger period."""
+        with self._lock:
+            session = self._sessions.get(session_id)
+            if session and session.phase.kind == PhaseKind.ENDED:
+                del self._sessions[session_id]
+        self._notify()
+        return False  # don't repeat
 
     def _notify(self):
         if self._on_change:
