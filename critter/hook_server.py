@@ -37,6 +37,7 @@ class HookSocketServer:
 
     def __init__(self):
         self._server: asyncio.Server | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._on_event: Callable[[HookEvent], None] | None = None
         self._pending: dict[str, PendingPermission] = {}  # keyed by tool_use_id
         # Cache tool_use_id from PreToolUse → PermissionRequest correlation
@@ -44,6 +45,7 @@ class HookSocketServer:
 
     async def start(self, on_event: Callable[[HookEvent], None]):
         self._on_event = on_event
+        self._loop = asyncio.get_running_loop()
 
         # Remove stale socket
         try:
@@ -75,9 +77,12 @@ class HookSocketServer:
     def respond_to_permission(
         self, tool_use_id: str, decision: str, reason: str | None = None
     ):
-        """Send a permission response. Safe to call from any context."""
-        asyncio.get_event_loop().create_task(
-            self._send_response(tool_use_id, decision, reason)
+        """Send a permission response. Safe to call from any thread."""
+        if self._loop is None:
+            logger.warning("Cannot respond: server not started")
+            return
+        asyncio.run_coroutine_threadsafe(
+            self._send_response(tool_use_id, decision, reason), self._loop
         )
 
     def respond_by_session(

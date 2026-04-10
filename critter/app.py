@@ -97,7 +97,6 @@ class CritterApp(Adw.Application):
 
     def _on_hook_event(self, event: HookEvent):
         """Called from the async thread when a hook event arrives."""
-        # Process in store (thread-safe since store is simple dict ops)
         self._store.process_hook(event)
 
         # Handle Stop → cancel pending permissions
