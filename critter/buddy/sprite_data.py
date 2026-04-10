@@ -112,9 +112,11 @@ HAT_LINES: dict[Hat, str] = {
 }
 
 
-def face(species: Species, eye: Eye) -> str:
-    """One-line face string for a species + eye combo."""
-    e = eye.value
+def face(species: Species, eye: Eye, mood_eye: str | None = None) -> str:
+    """One-line face string for a species + eye combo.
+    If mood_eye is provided, it overrides the eye character (for mood expressions).
+    """
+    e = mood_eye if mood_eye else eye.value
     match species:
         case Species.DUCK | Species.GOOSE:
             return f"({e}>"
@@ -153,15 +155,19 @@ def face(species: Species, eye: Eye) -> str:
 
 
 def render_frame(
-    species: Species, eye: Eye, hat: Hat, frame: int
+    species: Species, eye: Eye, hat: Hat, frame: int,
+    mood_eye: str | None = None,
 ) -> list[str]:
-    """Render a full multi-line sprite frame."""
+    """Render a full multi-line sprite frame.
+    If mood_eye is provided, it replaces the normal eye character.
+    """
     frames = BODIES.get(species, [])
     if not frames:
         return []
 
+    e = mood_eye if mood_eye else eye.value
     body = frames[frame % len(frames)]
-    lines = [line.replace("{E}", eye.value) for line in body]
+    lines = [line.replace("{E}", e) for line in body]
 
     # Replace first blank line with hat if applicable
     if hat != Hat.NONE and lines and lines[0].strip() == "":

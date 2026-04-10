@@ -1,9 +1,11 @@
 """
 Main application window.
-Combines the buddy view, session list, and controls.
+Combines the buddy view, session list, controls, and journal.
 """
 
 from __future__ import annotations
+
+from typing import Callable, TYPE_CHECKING
 
 import gi
 
@@ -12,9 +14,14 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Adw, Pango
 
 from ..buddy.identity import BuddyIdentity, Task
+from ..buddy.mood import Mood
+from ..buddy.stats import CritterStats
 from ..session_state import PhaseKind, SessionSource, SessionState
 from .buddy_view import BuddyView
 from .session_view import SessionListView
+
+if TYPE_CHECKING:
+    from ..buddy.journal import Journal
 
 CSS = """
 .buddy-sprite {
@@ -32,6 +39,29 @@ CSS = """
 
 .buddy-status {
     opacity: 0.7;
+}
+
+.stats-display {
+    opacity: 0.8;
+    padding: 4px 8px;
+}
+
+.reaction-label {
+    color: @accent_color;
+    font-weight: bold;
+    min-height: 20px;
+}
+
+.tamagotchi-btn {
+    min-width: 55px;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+}
+
+.needs-attention {
+    background: alpha(@warning_color, 0.2);
+    border-color: @warning_color;
 }
 
 .session-row {
@@ -74,24 +104,37 @@ CSS = """
     padding: 6px 12px;
     font-size: 11px;
 }
+
+.milestone-label {
+    color: @warning_color;
+    font-weight: bold;
+    font-size: 12px;
+    padding: 4px 12px;
+}
 """
 
 
 class MainWindow(Gtk.ApplicationWindow):
-    """The main Critter window."""
+    """The main Critter window - tamagotchi-style companion."""
 
     def __init__(
         self,
         app: Gtk.Application,
         identity: BuddyIdentity,
-        on_approve: callable,
-        on_deny: callable,
+        on_approve: Callable[[str], None],
+        on_deny: Callable[[str], None],
+        on_feed: Callable[[], None] | None = None,
+        on_play: Callable[[], None] | None = None,
+        on_rest: Callable[[], None] | None = None,
+        on_pet: Callable[[], None] | None = None,
+        journal: "Journal | None" = None,
     ):
         super().__init__(application=app, title="Critter")
-        self.set_default_size(420, 680)
+        self.set_default_size(420, 720)
 
         self._on_approve = on_approve
         self._on_deny = on_deny
+        self._journal = journal
 
         # Load CSS
         css_provider = Gtk.CssProvider()
@@ -112,18 +155,37 @@ class MainWindow(Gtk.ApplicationWindow):
         title_label = Gtk.Label(label="Critter")
         title_label.get_style_context().add_class("header-bar-title")
         header.set_title_widget(title_label)
+
+        # Diary button in header
+        if journal:
+            diary_btn = Gtk.Button(label="Diary")
+            diary_btn.connect("clicked", self._on_diary_clicked)
+            header.pack_end(diary_btn)
+
         self.set_titlebar(header)
 
         # Buddy display area
         buddy_frame = Gtk.Frame()
         buddy_frame.set_margin_start(12)
         buddy_frame.set_margin_end(12)
-        buddy_frame.set_margin_top(12)
-        self._buddy_view = BuddyView(identity)
-        self._buddy_view.set_margin_top(16)
-        self._buddy_view.set_margin_bottom(16)
+        buddy_frame.set_margin_top(8)
+        self._buddy_view = BuddyView(
+            identity,
+            on_feed=on_feed,
+            on_play=on_play,
+            on_rest=on_rest,
+            on_pet=on_pet,
+        )
+        self._buddy_view.set_margin_top(12)
+        self._buddy_view.set_margin_bottom(8)
         buddy_frame.set_child(self._buddy_view)
         vbox.append(buddy_frame)
+
+        # Milestone notification (hidden by default)
+        self._milestone_label = Gtk.Label(label="")
+        self._milestone_label.get_style_context().add_class("milestone-label")
+        self._milestone_label.set_visible(False)
+        vbox.append(self._milestone_label)
 
         # Sessions header
         sessions_header = Gtk.Box(
@@ -131,7 +193,7 @@ class MainWindow(Gtk.ApplicationWindow):
         )
         sessions_header.set_margin_start(12)
         sessions_header.set_margin_end(12)
-        sessions_header.set_margin_top(12)
+        sessions_header.set_margin_top(8)
         sessions_header.set_margin_bottom(4)
 
         sessions_title = Gtk.Label(label="Sessions")
@@ -158,7 +220,7 @@ class MainWindow(Gtk.ApplicationWindow):
         vbox.append(self._session_list)
 
         # Status bar
-        self._status_bar = Gtk.Label(label="Listening for Claude Code sessions...")
+        self._status_bar = Gtk.Label(label="Listening for sessions...")
         self._status_bar.set_xalign(0)
         self._status_bar.get_style_context().add_class("status-bar")
         self._status_bar.get_style_context().add_class("dim-label")
@@ -188,12 +250,45 @@ class MainWindow(Gtk.ApplicationWindow):
             source_str = ", ".join(sorted(sources))
             if pending:
                 self._status_bar.set_text(
-                    f"{len(sessions)} session(s) [{source_str}] - {pending} need attention"
+                    f"{len(sessions)} session(s) [{source_str}] - "
+                    f"{pending} need attention"
                 )
             else:
                 self._status_bar.set_text(
                     f"{len(sessions)} session(s) [{source_str}]"
                 )
+
+    def update_mood(self, mood: Mood):
+        """Update the buddy's displayed mood."""
+        self._buddy_view.set_mood(mood)
+
+    def update_stats(self, stats: CritterStats):
+        """Update the stat bars display."""
+        self._buddy_view.update_stats(stats)
+
+    def show_reaction(self, text: str):
+        """Show a brief reaction from a button press."""
+        self._buddy_view.show_reaction(text)
+
+    def show_milestone(self, text: str):
+        """Flash a milestone notification."""
+        self._milestone_label.set_text(text)
+        self._milestone_label.set_visible(True)
+        GLib.timeout_add(5000, self._hide_milestone)
+
+    def _hide_milestone(self) -> bool:
+        self._milestone_label.set_visible(False)
+        return False
+
+    def _on_diary_clicked(self, _btn):
+        """Open the journal popover."""
+        if not self._journal:
+            return
+        from .journal_view import JournalPopover
+
+        popover = JournalPopover(self._journal)
+        popover.set_parent(_btn)
+        popover.popup()
 
     def _derive_buddy_task(self, sessions: list[SessionState]) -> Task:
         """Map session states to buddy animation task."""
