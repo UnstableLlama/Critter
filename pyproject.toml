@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "critter"
+version = "0.1.0"
+description = "A Linux companion for Claude Code"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+requires-python = ">=3.10"
+dependencies = [
+    "PyGObject>=3.42",
+]
+
+[project.scripts]
+critter = "critter.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["critter*"]
