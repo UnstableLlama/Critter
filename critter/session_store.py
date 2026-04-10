@@ -11,7 +11,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable
 
-from .session_state import HookEvent, PhaseKind, SessionPhase, SessionState
+from .providers.base import StreamEvent, StreamPhase
+from .session_state import HookEvent, PhaseKind, SessionPhase, SessionSource, SessionState
 
 logger = logging.getLogger("critter.session")
 
@@ -93,6 +94,56 @@ class SessionStore:
         if not session:
             return
         session.phase = SessionPhase.idle()
+        session.last_activity = datetime.now()
+        self._notify()
+
+    def process_proxy_event(
+        self, session_id: str, backend_name: str, event: StreamEvent
+    ):
+        """Process a stream event from the transparent proxy."""
+        phase_map = {
+            StreamPhase.PROCESSING: PhaseKind.PROCESSING,
+            StreamPhase.GENERATING: PhaseKind.PROCESSING,
+            StreamPhase.TOOL_CALLING: PhaseKind.PROCESSING,
+            StreamPhase.TOOL_EXECUTING: PhaseKind.PROCESSING,
+            StreamPhase.WAITING: PhaseKind.WAITING_FOR_INPUT,
+            StreamPhase.IDLE: PhaseKind.IDLE,
+        }
+
+        if event.phase == StreamPhase.DONE:
+            # Remove completed proxy sessions
+            self._sessions.pop(session_id, None)
+            self._notify()
+            return
+
+        if event.phase == StreamPhase.ERROR:
+            self._sessions.pop(session_id, None)
+            self._notify()
+            return
+
+        session = self._sessions.get(session_id)
+        if not session:
+            session = SessionState(
+                session_id=session_id,
+                cwd="",
+                project_name=backend_name,
+                source=SessionSource.PROXY,
+                backend_name=backend_name,
+            )
+            self._sessions[session_id] = session
+
+        # Update model if detected
+        if event.model:
+            session.model = event.model
+            session.project_name = f"{backend_name}: {event.model}"
+
+        # Map stream phase to session phase
+        target_kind = phase_map.get(event.phase)
+        if target_kind:
+            new_phase = SessionPhase(target_kind)
+            if session.phase.can_transition(new_phase):
+                session.phase = new_phase
+
         session.last_activity = datetime.now()
         self._notify()
 

@@ -12,7 +12,7 @@ gi.require_version("Adw", "1")
 from gi.repository import Gtk, GLib, Adw, Pango
 
 from ..buddy.identity import BuddyIdentity, Task
-from ..session_state import PhaseKind, SessionState
+from ..session_state import PhaseKind, SessionSource, SessionState
 from .buddy_view import BuddyView
 from .session_view import SessionListView
 
@@ -181,15 +181,19 @@ class MainWindow(Gtk.ApplicationWindow):
 
         # Update status bar
         if not sessions:
-            self._status_bar.set_text("Listening for Claude Code sessions...")
+            self._status_bar.set_text("Listening for sessions...")
         else:
             pending = sum(1 for s in sessions if s.needs_attention)
+            sources = set(s.source_label for s in sessions)
+            source_str = ", ".join(sorted(sources))
             if pending:
                 self._status_bar.set_text(
-                    f"{len(sessions)} session(s) - {pending} need attention"
+                    f"{len(sessions)} session(s) [{source_str}] - {pending} need attention"
                 )
             else:
-                self._status_bar.set_text(f"{len(sessions)} active session(s)")
+                self._status_bar.set_text(
+                    f"{len(sessions)} session(s) [{source_str}]"
+                )
 
     def _derive_buddy_task(self, sessions: list[SessionState]) -> Task:
         """Map session states to buddy animation task."""

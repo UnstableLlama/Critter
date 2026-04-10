@@ -152,6 +152,13 @@ class SessionPhase:
 # Session state
 # ---------------------------------------------------------------------------
 
+class SessionSource(str, Enum):
+    """Where this session originated from."""
+    CLAUDE_CODE = "claude_code"
+    CODEX = "codex"
+    PROXY = "proxy"
+
+
 @dataclass
 class SessionState:
     session_id: str
@@ -162,10 +169,18 @@ class SessionState:
     phase: SessionPhase = field(default_factory=SessionPhase.idle)
     last_activity: datetime = field(default_factory=datetime.now)
     created_at: datetime = field(default_factory=datetime.now)
+    source: SessionSource = SessionSource.CLAUDE_CODE
+    backend_name: str | None = None
+    model: str | None = None
 
     def __post_init__(self):
         if not self.project_name:
-            self.project_name = Path(self.cwd).name
+            if self.cwd:
+                self.project_name = Path(self.cwd).name
+            elif self.backend_name:
+                self.project_name = self.backend_name
+            else:
+                self.project_name = "unknown"
 
     @property
     def needs_attention(self) -> bool:
@@ -180,6 +195,14 @@ class SessionState:
     @property
     def display_title(self) -> str:
         return self.project_name
+
+    @property
+    def source_label(self) -> str:
+        if self.source == SessionSource.PROXY and self.backend_name:
+            return self.backend_name
+        if self.source == SessionSource.CODEX:
+            return "Codex"
+        return "Claude Code"
 
 
 # ---------------------------------------------------------------------------

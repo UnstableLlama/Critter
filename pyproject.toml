@@ -5,12 +5,14 @@ build-backend = "setuptools.backends._legacy:_Backend"
 [project]
 name = "critter"
 version = "0.1.0"
-description = "A Linux companion for Claude Code"
+description = "A Linux companion for Claude Code, OpenAI Codex, and local LLMs"
 readme = "README.md"
 license = "GPL-3.0-or-later"
 requires-python = ">=3.10"
 dependencies = [
     "PyGObject>=3.42",
+    "aiohttp>=3.9",
+    "PyYAML>=6.0",
 ]
 
 [project.scripts]

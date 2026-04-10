@@ -12,7 +12,7 @@ import gi
 gi.require_version("Gtk", "4.0")
 from gi.repository import Gtk, Pango, GLib
 
-from ..session_state import PhaseKind, SessionState
+from ..session_state import PhaseKind, SessionSource, SessionState
 
 
 # Phase → display info
@@ -50,6 +50,11 @@ class SessionRow(Gtk.Box):
         header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         header.set_hexpand(True)
 
+        # Source badge
+        source_label = Gtk.Label(label=session.source_label)
+        source_label.get_style_context().add_class("dim-label")
+        header.append(source_label)
+
         title = Gtk.Label(label=session.display_title)
         title.set_xalign(0)
         title.set_hexpand(True)
@@ -68,13 +73,17 @@ class SessionRow(Gtk.Box):
 
         self.append(header)
 
-        # Info row: cwd + pid
-        info_parts = [session.cwd]
+        # Info row: cwd + pid (hook sessions) or model (proxy sessions)
+        info_parts = []
+        if session.cwd:
+            info_parts.append(session.cwd)
         if session.pid:
             info_parts.append(f"PID {session.pid}")
         if session.tty:
             info_parts.append(session.tty)
-        info_text = "  |  ".join(info_parts)
+        if session.model:
+            info_parts.append(session.model)
+        info_text = "  |  ".join(info_parts) if info_parts else session.source_label
 
         info = Gtk.Label(label=info_text)
         info.set_xalign(0)
@@ -162,7 +171,7 @@ class SessionListView(Gtk.ScrolledWindow):
         self.set_child(self._list_box)
 
         self._empty_label = Gtk.Label(
-            label="No active Claude Code sessions\n\nStart a Claude Code session and it will appear here."
+            label="No active sessions\n\nStart Claude Code, Codex, or an API request\nthrough a proxy and it will appear here."
         )
         self._empty_label.set_justify(Gtk.Justification.CENTER)
         self._empty_label.get_style_context().add_class("dim-label")
